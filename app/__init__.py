@@ -1,5 +1,6 @@
 from flask import Flask
 from celery import Celery
+from flask_socketio import SocketIO
 
 def init_celery(celery, app):
     celery.conf.update(app.config)
@@ -17,6 +18,7 @@ def make_celery(app_name=__name__):
                   include=['app.tasks'])
 
 celery = make_celery()
+socketio = SocketIO()
 
 def create_app(app_name=__name__, **kwargs):
     app = Flask(app_name)
@@ -26,7 +28,8 @@ def create_app(app_name=__name__, **kwargs):
     from app.all import bp
     app.register_blueprint(bp)
 
+    socketio.init_app(app)
+
+    app.clients = {}
     return app
-
-
 

@@ -1,11 +1,14 @@
-import os
+import os, uuid
 
 from flask import (
     Blueprint,
     request, render_template, redirect, url_for,
-    jsonify, session, flash
+    jsonify, session, flash, current_app
 )
+from flask_socketio import emit, disconnect
+
 from .tasks import long_task
+from . import socketio
 
 bp = Blueprint("all", __name__)
 
@@ -13,37 +16,48 @@ bp = Blueprint("all", __name__)
 def index():
     return render_template('index.html', email=session.get('email', ''))
 
+@bp.route('/clients', methods=['GET'])
+def clients():
+    return jsonify({'clients': list(current_app.clients.keys())})
+
 @bp.route('/longtask', methods=['POST'])
 def longtask():
-    task = long_task.apply_async()
-    return jsonify({}), 202, {'Location': url_for('all.taskstatus',
-                                                  task_id=task.id)}
+    elementid = request.json['elementid']
+    userid = request.json['userid']
+    task = long_task.delay(elementid, userid, url_for('all.event', _external=True))
+    return jsonify({}), 202
 
-@bp.route('/status/<task_id>')
-def taskstatus(task_id):
-    task = long_task.AsyncResult(task_id)
-    if task.state == 'PENDING':
-        response = {
-            'state': task.state,
-            'current': 0,
-            'total': 1,
-            'status': 'Pending...'
-        }
-    elif task.state != 'FAILURE':
-        response = {
-            'state': task.state,
-            'current': task.info.get('current', 0),
-            'total': task.info.get('total', 1),
-            'status': task.info.get('status', '')
-        }
-        if 'result' in task.info:
-            response['result'] = task.info['result']
-    else:
-        # something went wrong in the background job
-        response = {
-            'state': task.state,
-            'current': 1,
-            'total': 1,
-            'status': str(task.info),  # this is the exception raised
-        }
-    return jsonify(response)
+@bp.route('/event/', methods=['POST'])
+def event():
+    userid = request.json['userid']
+    data = request.json
+    ns = current_app.clients.get(userid)
+    if ns and data:
+        socketio.emit('celerystatus', data, namespace=ns)
+        return 'ok'
+    return 'error', 404
+
+## @TODO: What is this for?
+@socketio.on('status', namespace='/events')
+def events_message(message):
+    emit('status', {'status': message['status']})
+
+
+## @TODO: what is this?
+@socketio.on('disconnect request', namespace='/events')
+def disconnect_request():
+    emit('status', {'status': 'Disconnected!'})
+    disconnect()
+
+@socketio.on('connect', namespace='/events')
+def events_connect():
+    userid = str(uuid.uuid4())
+    session['userid'] = userid
+    current_app.clients[userid] = request.namespace
+    emit('userid', {'userid': userid})
+    emit('status', {'status': 'Connected user', 'userid': userid})
+
+@socketio.on('disconnect', namespace='/events')
+def events_disconnect():
+    del current_app.clients[session['userid']]
+    print(f"Client {session['userid']} disconnected")
