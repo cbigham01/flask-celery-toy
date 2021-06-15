@@ -1,4 +1,5 @@
 venv/
+redis-stable/
 
 *.pyc
 __pycache__/
