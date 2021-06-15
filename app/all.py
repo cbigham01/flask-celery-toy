@@ -5,7 +5,7 @@ from flask import (
     request, render_template, redirect, url_for,
     jsonify, session, flash, current_app
 )
-from flask_socketio import emit, disconnect
+from flask_socketio import emit, disconnect, join_room
 
 from .tasks import long_task
 from . import socketio
@@ -33,7 +33,7 @@ def event():
     data = request.json
     ns = current_app.clients.get(userid)
     if ns and data:
-        socketio.emit('celerystatus', data, namespace=ns)
+        socketio.emit('celerystatus', data, namespace=ns, to=userid)
         return 'ok'
     return 'error', 404
 
@@ -54,6 +54,7 @@ def events_connect():
     userid = str(uuid.uuid4())
     session['userid'] = userid
     current_app.clients[userid] = request.namespace
+    join_room(userid)
     emit('userid', {'userid': userid})
     emit('status', {'status': 'Connected user', 'userid': userid})
 
