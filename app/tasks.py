@@ -18,15 +18,19 @@ def long_task(self, dataset, outfile, taskid, progress_url):
                                               random.choice(noun))
         meta={'current': i, 'total': total, 'status': message, 'done': False,
               'taskid': taskid, 'dataset': dataset}
-        post(progress_url, json=meta)
+        # post(progress_url, json=meta)
+        socketio.emit('taskprogress', meta, to=taskid)
         time.sleep(0.5)
 
+    output = '!!! output file text !!!'
     with open(outfile, 'w') as f:
-        f.write('!!! output file text !!!')
+        f.write(output)
     
     meta = {'current': 100, 'total': 100, 'status': 'Task completed!', 'done': True,
             'result': 42, 'taskid': taskid, 'dataset': dataset}
-    post(progress_url, json=meta)
+    # post(progress_url, json=meta)
+    socketio.emit('taskprogress', meta, to=taskid)
+    socketio.emit('taskdone', output, to=taskid)
     return meta
 
 
