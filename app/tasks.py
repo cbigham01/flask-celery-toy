@@ -4,7 +4,7 @@ from requests import post
 from app import celery, socketio
 
 @celery.task(bind=True)
-def long_task(self, elementid, userid, url):
+def long_task(self, dataset, outfile, taskid, progress_url):
     """Background task that runs a long function with progress reports."""
     verb = ['Starting up', 'Booting', 'Repairing', 'Loading', 'Checking']
     adjective = ['master', 'radiant', 'silent', 'harmonic', 'fast']
@@ -16,16 +16,17 @@ def long_task(self, elementid, userid, url):
             message = '{0} {1} {2}...'.format(random.choice(verb),
                                               random.choice(adjective),
                                               random.choice(noun))
-        meta={'current': i, 'total': total, 'status': message,
-              'elementid': elementid, 'userid': userid}
-
-        # self.update_state(state='PROGRESS', meta)
-        post(url, json=meta)
+        meta={'current': i, 'total': total, 'status': message, 'done': False,
+              'taskid': taskid, 'dataset': dataset}
+        post(progress_url, json=meta)
         time.sleep(0.5)
+
+    with open(outfile, 'w') as f:
+        f.write('!!! output file text !!!')
     
-    meta = {'current': 100, 'total': 100, 'status': 'Task completed!',
-            'result': 42, 'elementid': elementid, 'userid': userid}
-    post(url, json=meta)
+    meta = {'current': 100, 'total': 100, 'status': 'Task completed!', 'done': True,
+            'result': 42, 'taskid': taskid, 'dataset': dataset}
+    post(progress_url, json=meta)
     return meta
 
 

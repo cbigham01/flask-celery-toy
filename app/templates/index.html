@@ -1,11 +1,11 @@
 <html>
   <head>
-    <title>Flask SocketIO + Celery Examples</title>
+    <title>Kieft Dashboard Toy</title>
     <style>
-        .progress {
-            width: 100%;
-            text-align: center;
-        }
+      .progress {
+          width: 100%;
+          text-align: center;
+      }
     </style>
     <script src="//cdnjs.cloudflare.com/ajax/libs/nanobar/0.4.2/nanobar.min.js"></script>
     <script src="//cdnjs.cloudflare.com/ajax/libs/jquery/2.2.4/jquery.min.js"></script>
@@ -13,92 +13,133 @@
 
   </head>
   <body>
-    <h1>Flask SocketIO + Celery Examples</h1>
-    SocketIO Status:<div id="status"></div>
-    <h2>Example 1: Long running task with progress updates</h2>
-    <button id="start-bg-job">Start Long Calculation</button><br><br>
+    <h1>Kieft Dashboard Toy</h1>
+    <p>
+      <b>Dataset</b>: {{ dataset }}<br>
+      <b>Room</b>:
+      <span id="room">{% if room %}{{ room }}{% else %}(None yet){% endif %}</span>
+      <br>
+      <b>Output</b>:
+      <span id="output">{% if result %}{{ result }}{% endif %}</span>
+      <br>
+      
+      <button id="start-bg-job">Start Long Calculation</button>
+    </p>
+
+    <br><br>
 
     <div id="progress"></div>
 
+    <br><br>
+    <p>SocketIO Status:</p>
+    <ul id="status"></ul>
+
     <script>
-        $(document).ready(function(){
-            var gIdCounter = 0;
-            var userId;
-            var nanobars = {};
-            function generateID(baseStr) {
-                return(baseStr + gIdCounter++);
-            }
-            function start_long_task() {
-                // add task status elements
-                progressid = generateID('progress')
-                div = $('<div id="' + progressid + '" class="progress"><div></div><div>0%</div><div>...</div><div>&nbsp;</div></div><hr>');
-                $('#progress').append(div);
+      $(document).ready(function(){
+	  function assert(cond, msg) {
+	      if (!cond)
+		  throw msg || "Assertion failed";
+	  }
+          var roomId = {% if room %}"{{ room|safe }}"{% else %}undefined{% endif %};
+	  var dataset = '{{ dataset|safe }}';
+	  var url = 'http://' + document.domain + ':' + location.port;
+	  var socket = undefined; // io.connect(url);
+	  var nanobar = undefined;
+	  var progress_div = undefined;
+	  
 
-                // create a progress bar
-                var nanobar = new Nanobar({
-                    bg: '#44f',
-                    target: div[0].childNodes[0]
-                });
-                nanobars[progressid] = nanobar;
-                // send ajax POST request to start background job
-                $.ajax({
-                    type: 'POST',
-                    url: '/longtask',
-                    contentType: "application/json; charset=utf-8",
-                    dataType: "json",
-                    data: JSON.stringify({"elementid": progressid, "userid": userId}),
-                    success: function(data, status, request) {
-                    },
-                    error: function() {
-                        alert('Unexpected error');
-                    }
-                });
-            }
-            function update_progress(data) {
-                percent = parseInt(data['current'] * 100 / data['total']);
-                nanobars[data.elementid].go(percent);
-                var ele = $('#'+data.elementid);
-                $(ele[0].childNodes[1]).text(percent + '%');
-                $(ele[0].childNodes[2]).text(data['status']);
+	  function setupConnection() {
+	      socket = io.connect(url);
+	      socket.on('connect', () => {
+		  updateStatus('Connected.');
+		  assert(roomId);
+		  socket.emit('join_room', {'roomid': roomId});
+	      });
+	      socket.on('connect_error', () => console.log("connect error!"));
+	      socket.on('disconnect', (reason) => updateStatus(`Got disconnected: ${reason}`))
+	      socket.on('taskprogress', (msg) => { // celery status
+		  console.log("Got task progress.");
+		  updateProgress(msg);
+	      }); 
+	      socket.on('taskdone', (data) => {
+		  console.log(`Done: ${data}`);
+		  $('#output').text(data);
+		  
+	      });
+              socket.on('status', (msg) => updateStatus(msg.status)); // server/socket status
+	  }
 
-                if ('result' in data) {
-                    // show result
-                     $(ele[0].childNodes[3]).text('Result: ' + data['result']);
-                }
-            }
-            $(function() {
-                $('#start-bg-job').click(start_long_task);
-            });
+	  {% if room and not done %} // Need to join the room right away
+	  assert(roomId);
+	  console.log(`Joining in-progress task: ${roomId}`)
+	  progress_div = $('<div class="progress"><div></div><div>0%</div><div>...</div><div>&nbsp;</div></div><hr>');
+          $('#progress').html(progress_div);
 
-            // Setup socketio functions
-            var namespace = '/events'; // change to an empty string to use the global namespace
+	  nanobar = new Nanobar({bg: '#44f', target: progress_div[0].childNodes[0]});    
 
-            // the socket.io documentation recommends sending an explicit package upon connection
-            // this is specially important when using the global namespace
-            var socket = io.connect('http://' + document.domain + ':' + location.port + namespace);
-            socket.on('connect', function() {
-                socket.emit('status', {status: 'I\'m connected!'});
-            });
+	  setupConnection();
+	  {% endif %}
 
-            // event handler for userid.  On initial connection, the server
-            // sends back a unique userid
-            socket.on('userid', function(msg) {
-                userId = msg.userid;
-            });
+          function start_long_task() {
+              progress_div = $('<div class="progress"><div></div><div>0%</div><div>...</div><div>&nbsp;</div></div><hr>');
+              $('#progress').html(progress_div);
 
-            // event handler for server sent celery status
-            // the data is displayed in the "Received" section of the page
-            socket.on('celerystatus', function(msg) {
-                update_progress(msg);
-            });
+	      nanobar = new Nanobar({bg: '#44f', target: progress_div[0].childNodes[0]});    
 
-            // event handler for server sent general status
-            // the data is displayed in the "Received" section of the page
-            socket.on('status', function(msg) {
-                $('#status').text(msg.status);
-            });
+              // send ajax POST request to start background job
+              $.ajax({
+                  type: 'POST',
+                  url: '/longtask',
+                  contentType: "application/json; charset=utf-8",
+                  dataType: "json",
+                  data: JSON.stringify({'dataset': dataset}),
+		  success: function(data, status, request) {
+		      roomId = data.roomid;
+		      updateStatus(`Server assigned us room: ${data.roomid}`);
+		      //$('#room').text(data.roomid);
+		      $('#room').html(`<a href="${data.roomid}">${data.roomid}</a>`);
+		      setupConnection();
+                  },
+                  error: function() {
+                      console.log('Unexpected error');
+                  }
+	      });
+          }
+	  
+          function updateProgress(data) {
+	      assert(nanobar, "Nanobar not yet defined!");
+              percent = parseInt(data['current'] * 100 / data['total']);
+              nanobar.go(percent);
+              // var ele = $('#'+data.elementid);
+              // $(ele[0].childNodes[1]).text(percent + '%');
+              // $(ele[0].childNodes[2]).text(data['status']);
+	      $(progress_div[0].childNodes[1]).text(percent + '%');
+	      $(progress_div[0].childNodes[2]).text(data['status']);
 
-        });
+              if ('result' in data) { // show result
+		  $(progress_div[0].childNodes[3]).text('Result: ' + data['result']);
+              }
+          }
+
+	  function getTimestamp() {
+	      const now = new Date();
+	      const year = now.getFullYear();
+	      const month = (now.getMonth()+1).toString().padStart(2, '0');
+	      const day = now.getDate().toString().padStart(2, '0');
+	      const h = now.getHours()
+	      const m = now.getMinutes();
+	      const s = now.getSeconds();
+	      return `${year}/${month}/${day} ${h}:${m}:${s}`;
+	  }
+
+	  function updateStatus(msg) {
+	      timestamp = getTimestamp();
+	      $('#status').append(`<li>[${timestamp}] ${msg}</li>`);
+	  }
+	  
+          $('#start-bg-job').click(start_long_task);
+
+      });
     </script>
 
   </body>

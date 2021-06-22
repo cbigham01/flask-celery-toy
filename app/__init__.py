@@ -1,6 +1,7 @@
 from flask import Flask
 from celery import Celery
 from flask_socketio import SocketIO
+from pathlib import Path
 
 def init_celery(celery, app):
     celery.conf.update(app.config)
@@ -28,8 +29,9 @@ def create_app(app_name=__name__, **kwargs):
     from app.all import bp
     app.register_blueprint(bp)
 
-    socketio.init_app(app)
+    (Path(app.instance_path) / 'outputs').mkdir(parents=True, exist_ok=True)
 
-    app.clients = {}
+    socketio.init_app(app, message_queue='redis://localhost:6379/0')
+
     return app
 
