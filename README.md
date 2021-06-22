@@ -21,7 +21,7 @@ In separate terminals (or just in the background), start Redis:
 Celery:
 
 ```bash
-celery -A celery_worker.celery worker --loglevel=info --pool=solo
+start-celery.sh
 ```
 
 and Flask:
