@@ -7,11 +7,20 @@ from flask import (
     jsonify, session, flash, current_app
 )
 from flask_socketio import emit, disconnect, join_room, leave_room
+from werkzeug.datastructures import MultiDict as FormDataStructure
+
+from flask_wtf import FlaskForm
+from wtforms import StringField, SubmitField
+from wtforms.validators import DataRequired
 
 from .tasks import long_task
 from . import socketio
 
 bp = Blueprint("all", __name__)
+
+class MyForm(FlaskForm):
+    name = StringField('Name', validators=[DataRequired()],
+                       render_kw = {"placeholder": 'Enter your name'})
 
 # ignore dataset, for now
 def get_output_path(dataset, room):
@@ -21,6 +30,7 @@ def get_output_path(dataset, room):
 @bp.route('/<dataset>/', methods=['GET'])
 @bp.route('/<dataset>/<room>', methods=['GET'])
 def index(dataset='default', room=None):
+    form = MyForm()
     done = False
     output = None
     if room:
@@ -39,10 +49,20 @@ def index(dataset='default', room=None):
             done = True
             
     return render_template('index.html', dataset=dataset, room=room,
-                           result=output, done=done)
+                           result=output, done=done, form=form)
 
 @bp.route('/longtask', methods=['POST'])
 def longtask():
+    data = request.json
+    form = MyForm()
+    if 'formdata' in data:
+        form_data = FormDataStructure(data['formdata'])
+    form = MyForm(formdata=form_data)
+
+    if not form.validate():
+        return jsonify(data={'form error': form.errors}), 400
+
+    name = form.name.data
     dataset = request.json['dataset']
     roomid = str(uuid.uuid4())
     outfile = Path(current_app.instance_path) / 'outputs' / roomid
@@ -51,14 +71,14 @@ def longtask():
     Path(f"{outfile}.tmp").touch()
     
     details = [dataset, roomid]
-    print("Long task would be started")
+    # print("Long task would be started")
     task = long_task.delay(dataset, os.fspath(outfile), roomid,
                            url_for('all.task_event', _external=True))
 
     # Socket not connected yet, (and room not joined yet), so can't emit here.
     # socketio.emit('status', {'status': f'Task started: {details}'}, to=roomid)
     
-    return jsonify({'roomid': roomid}), 202
+    return jsonify({'roomid': roomid, 'name': name}), 202
 
 @bp.route('/task_event/', methods=['POST'])
 def task_event():

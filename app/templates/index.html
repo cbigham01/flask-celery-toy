@@ -22,8 +22,13 @@
       <b>Output</b>:
       <span id="output">{% if result %}{{ result }}{% endif %}</span>
       <br>
-      
-      <button id="start-bg-job">Start Long Calculation</button>
+
+      <form id="taskform">
+	{{ form.hidden_tag() }}
+	{{ form.name.label }}: {{ form.name() }}
+	<!-- <button id="start-bg-job">Start Long Calculation</button> -->
+	<input type="submit" value="Start Long Calculation">
+      </form>
     </p>
 
     <br><br>
@@ -36,6 +41,17 @@
 
     <script>
       $(document).ready(function(){
+
+	  // Make sure to send CSRF token for form validation
+	  $.ajaxSetup({
+              beforeSend: function(xhr, settings) {
+       		  if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+       		      xhr.setRequestHeader("X-CSRFToken", "{{ csrf_token() }}" );
+       		  }
+	      }
+	  });
+
+
 	  function assert(cond, msg) {
 	      if (!cond)
 		  throw msg || "Assertion failed";
@@ -80,30 +96,43 @@
 	  setupConnection();
 	  {% endif %}
 
+	  $('#taskform').submit( (e) => {
+	      start_long_task();
+	      e.preventDefault();
+	  });
+	  
           function start_long_task() {
               progress_div = $('<div class="progress"><div></div><div>0%</div><div>...</div><div>&nbsp;</div></div><hr>');
               $('#progress').html(progress_div);
 
-	      nanobar = new Nanobar({bg: '#44f', target: progress_div[0].childNodes[0]});    
+	      nanobar = new Nanobar({bg: '#44f', target: progress_div[0].childNodes[0]});
+
+	      const tmp = $('#taskform').serializeArray();
+	      let formdata = {};
+	      $.map(tmp, (obj, i) => formdata[obj['name']] = obj['value']);
+	      data = {'dataset': dataset, 'formdata': formdata};
+	      console.log(data);
 
               // send ajax POST request to start background job
               $.ajax({
                   type: 'POST',
-                  url: '/longtask',
+                  url: "{{ url_for('all.longtask') }}",
                   contentType: "application/json; charset=utf-8",
                   dataType: "json",
-                  data: JSON.stringify({'dataset': dataset}),
+                  data: JSON.stringify(data),
 		  success: function(data, status, request) {
 		      roomId = data.roomid;
 		      updateStatus(`Server assigned us room: ${data.roomid}`);
-		      //$('#room').text(data.roomid);
-		      $('#room').html(`<a href="${data.roomid}">${data.roomid}</a>`);
+		      updateStatus(`Returned name is: ${data.name}`);
+		      $('#room').html(`<a href="${dataset}/${data.roomid}">${data.roomid}</a>`);
 		      setupConnection();
                   },
-                  error: function() {
-                      console.log('Unexpected error');
+                  error: function(data) {
+                      console.log(`Unexpected error: ${data}`);
                   }
+		  
 	      });
+	      
           }
 	  
           function updateProgress(data) {
@@ -137,7 +166,7 @@
 	      $('#status').append(`<li>[${timestamp}] ${msg}</li>`);
 	  }
 	  
-          $('#start-bg-job').click(start_long_task);
+          // $('#start-bg-job').click(start_long_task);
 
       });
     </script>
